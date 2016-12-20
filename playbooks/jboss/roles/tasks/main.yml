@@ -5,12 +5,52 @@
 
 - name: install unzip
   yum: name=unzip state=present
+  
+- name: Download JBoss from jboss.org
+  get_url: url=http://download.jboss.org/jbossas/7.1/jboss-as-7.1.1.Final/jboss-as-7.1.1.Final.zip dest=/opt/jboss-as-7.1.1.Final.zip
+
+- name: Extract archive
+  command: chdir=/usr/share /usr/bin/unzip -q /opt/jboss-as-7.1.1.Final.zip creates=/usr/share/jboss-as
+
+# Rename the dir to avoid encoding the version in the init script
+- name: Rename install directory
+  command: chdir=/usr/share /bin/mv jboss-as-7.1.1.Final jboss-as creates=/usr/share/jboss-as
 
 - name: add jboss group
   group: name=jboss state=present
 
 - name: add jboss user
-  user: name=jboss group=jboss home=/opt/jboss
+  user: name=jboss group=jboss home=/usr/share/jboss
+  
+- name: Change ownership of JBoss installation
+  file: path=/usr/share/jboss-as/ owner=jboss group=jboss state=directory recurse=yes
+
+- name: Copying standalone.xml configuration file
+  template: src=standalone.xml dest=/usr/share/jboss-as/standalone/configuration/
+
+- name: Replace EXT_DATABASE_NAME in standalone.xml
+  replace: dest=/usr/share/jboss-as/standalone/configuration/standalone.xml  regexp='EXT_DATABASE_NAME' replace="{{ hostvars[ext_database_name]['ansible_ssh_host'] }}"
+
+- name: Copy the init script
+  copy: src=jboss-as-standalone.sh dest=/etc/init.d/jboss mode=0755
+
+- name: Install JBoss Applications
+  copy: src=ticket-monster.war dest=/usr/share/jboss-as/standalone/deployments
+
+- name: Create directory for PostgreSQL Driver
+  file: path=/usr/share/jboss-as/modules/org/postgresql/main state=directory 
+
+- name: Copy module.xml
+  copy: src=module.xml dest=/usr/share/jboss-as/modules/org/postgresql/main
+
+- name: Copy postgresql-9.4.1208.jre7.jar
+  copy: src=postgresql-9.4.1208.jre7.jar dest=/usr/share/jboss-as/modules/org/postgresql/main
+
+- name: Enable JBoss to be started at boot
+  service: name=jboss enabled=yes state=started
+  notify: restart jboss
+
+- meta: flush_handlers
 
 #- name: stop fuse
 #  command: service fuse-service stop
@@ -20,72 +60,72 @@
 
 #- fail: msg="Destroyed"
 
-- name: copy the eap archive
-  copy: src=jboss-fuse-full-6.2.1.redhat-084.zip dest=/opt/jboss
-  register: archive
+#- name: copy the eap archive
+#  copy: src=jboss-fuse-full-6.2.1.redhat-084.zip dest=/opt/jboss
+#  register: archive
 
-- name: unarchive fuse
-  unarchive: src=/opt/jboss/jboss-fuse-full-6.2.1.redhat-084.zip dest=/opt/jboss/ owner=jboss group=jboss copy=no
-  when: archive.changed
+#- name: unarchive fuse
+#  unarchive: src=/opt/jboss/jboss-fuse-full-6.2.1.redhat-084.zip dest=/opt/jboss/ owner=jboss group=jboss copy=no
+#  when: archive.changed
 
-- name: add fuse admin user
-  lineinfile: dest=/opt/jboss/jboss-fuse-6.2.1.redhat-084/etc/users.properties
-    regexp='^admin=admin'
-    insertafter='^#admin=admin'
-    line='admin=admin,admin,manager,viewer,Monitor, Operator, Maintainer, Deployer, Auditor, Administrator, SuperUser'
-    state=present
-  when: archive.changed
+#- name: add fuse admin user
+#  lineinfile: dest=/opt/jboss/jboss-fuse-6.2.1.redhat-084/etc/users.properties
+#    regexp='^admin=admin'
+#    insertafter='^#admin=admin'
+#    line='admin=admin,admin,manager,viewer,Monitor, Operator, Maintainer, Deployer, Auditor, Administrator, SuperUser'
+#   state=present
+#  when: archive.changed
 
-- name: start fuse
-  shell: ./start chdir=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin
-  become: yes
-  become_user: jboss
-  async: 60
-  poll: 0
-  when: archive.changed
+#- name: start fuse
+# shell: ./start chdir=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin
+#  become: yes
+#  become_user: jboss
+#  async: 60
+#  poll: 0
+#  when: archive.changed
 
-- name: wait for fuse to start
-  wait_for: port=8181 host=localhost delay=10
-  when: archive.changed
+#- name: wait for fuse to start
+#  wait_for: port=8181 host=localhost delay=10
+#  when: archive.changed
 
-- name: detect fuse service
-  stat: path=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/fuse-service
-  register: service_path
+#- name: detect fuse service
+# stat: path=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/fuse-service
+#  register: service_path
 
-- name: install service wrapper feature
-  command: /opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/client -r 3 -d 10 -u admin -p admin 'features:install wrapper'
-  become: yes
-  become_user: jboss
-  when: service_path.stat.exists == False
+#- name: install service wrapper feature
+#  command: /opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/client -r 3 -d 10 -u admin -p admin 'features:install wrapper'
+#  become: yes
+#  become_user: jboss
+#  when: service_path.stat.exists == False
 
-- name: generate service wrapper
-  command: /opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/client -r 3 -d 10 -u admin -p admin 'wrapper:install -n fuse'
-  become: yes
-  become_user: jboss
-  when: service_path.stat.exists == False
+#- name: generate service wrapper
+#  command: /opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/client -r 3 -d 10 -u admin -p admin 'wrapper:install -n fuse'
+#  become: yes
+#  become_user: jboss
+#  when: service_path.stat.exists == False
 
-- name: stop fuse
-  shell: ./stop chdir=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin
-  become: yes
-  become_user: jboss
-  async: 60
-  poll: 0
-  when: archive.changed
+#- name: stop fuse
+#  shell: ./stop chdir=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin
+#  become: yes
+#  become_user: jboss
+#  async: 60
+#  poll: 0
+#  when: archive.changed
 
-- name: configure fuse service
-  lineinfile: dest=/opt/jboss/jboss-fuse-6.2.1.redhat-084/etc/fuse-wrapper.conf
-    regexp='^wrapper.java.command='
-    line='wrapper.java.command=java'
-    state=present
-  when: service_path.stat.exists == False
+#- name: configure fuse service
+#  lineinfile: dest=/opt/jboss/jboss-fuse-6.2.1.redhat-084/etc/fuse-wrapper.conf
+#    regexp='^wrapper.java.command='
+#    line='wrapper.java.command=java'
+#    state=present
+#  when: service_path.stat.exists == False
 
-- name: symlink to the fuse service
-  file: src=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/fuse-service dest=/etc/init.d/fuse-service state=link
-  when: service_path.stat.exists == False
+#- name: symlink to the fuse service
+#  file: src=/opt/jboss/jboss-fuse-6.2.1.redhat-084/bin/fuse-service dest=/etc/init.d/fuse-service state=link
+#  when: service_path.stat.exists == False
 
-- name: enable fuse service
-  service: name=fuse-service enabled=yes
+#- name: enable fuse service
+#  service: name=fuse-service enabled=yes
 
-- name: start fuse
-  command: service fuse-service start
+#- name: start fuse
+#  command: service fuse-service start
 
